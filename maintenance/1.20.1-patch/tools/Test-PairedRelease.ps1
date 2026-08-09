@@ -139,6 +139,7 @@ $printerRequiredEntries = @(
     'me/aleksilassila/litematica/printer/api/scheduler/LayerScheduler.class',
     'me/aleksilassila/litematica/printer/api/scheduler/ScheduledMaterialDemand.class',
     'me/aleksilassila/litematica/printer/api/scheduler/PlacementResult.class',
+    'me/aleksilassila/litematica/printer/integration/mixin/ClientPlayerTickHandlerAccessor.class',
     'me/aleksilassila/litematica/printer/integration/mixin/PrintHandlerPlacementFacadeMixin.class'
 )
 $tomRequiredEntries = @(
@@ -227,7 +228,10 @@ try {
         -Label "Nested Printer $PrinterMixinConfig"
     Assert-JsonStringArrayContains `
         -Values $printerMixinMetadata.client `
-        -ExpectedValues @('PrintHandlerPlacementFacadeMixin') `
+        -ExpectedValues @(
+            'ClientPlayerTickHandlerAccessor',
+            'PrintHandlerPlacementFacadeMixin'
+        ) `
         -Label "Nested Printer $PrinterMixinConfig client Mixins"
 
     $printDispatchDescriptor = 'Lme/aleksilassila/litematica/printer/printer/ActionManager;sendQueue(Lnet/minecraft/class_746;)Lme/aleksilassila/litematica/printer/printer/ActionManager;'
@@ -237,6 +241,15 @@ try {
         -RequiredText @($printDispatchDescriptor, 'sendQueueFromPrintHandler') `
         -ForbiddenText @($namedPrintDispatchDescriptor) `
         -Label 'Nested Printer PrintHandler facade Mixin'
+    Assert-ZipEntryAsciiContract `
+        -Entry $innerEntries['me/aleksilassila/litematica/printer/integration/mixin/ClientPlayerTickHandlerAccessor.class'] `
+        -RequiredText @(
+            'me.aleksilassila.litematica.printer.handler.ClientPlayerTickHandler',
+            'litematicaPrinter$updateVariables',
+            'litematicaPrinter$isOnCooldown',
+            'Lorg/spongepowered/asm/mixin/gen/Invoker;'
+        ) `
+        -Label 'Nested Printer inherited handler accessor Mixin'
 
     $tomArchive = [System.IO.Compression.ZipFile]::OpenRead($tomPath)
     $tomEntries = Get-ZipEntryMap -Archive $tomArchive -Label 'Paired Tom JAR'

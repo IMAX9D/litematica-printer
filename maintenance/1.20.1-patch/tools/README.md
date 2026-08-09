@@ -149,6 +149,11 @@ Tom dependency must be the exact scalar predicate formed from the same patched
 Printer version, so the pair cannot silently accept the original build.365
 inner JAR.
 
+The Printer gate also requires the explicit `ClientPlayerTickHandlerAccessor`
+Mixin. `PrintHandler` inherits `updateVariables` and `isOnCooldown` from that
+parent; the facade must call them through the parent-targeted invoker instead
+of declaring invalid `@Shadow` methods on `PrintHandler` itself.
+
 ```powershell
 $tomJar = 'E:\Fabric\清水二改\Toms-Storage-1.20.1-Fabric-JustLikeAe2-main\Toms-Storage-Fabric-1.20\build\libs\toms_storage_fabric-1.20-1.8.6.jar'
 $outerHash = (Get-FileHash -LiteralPath $patchedOuter -Algorithm SHA256).Hash

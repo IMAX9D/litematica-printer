@@ -26,14 +26,8 @@ public abstract class PrintHandlerPlacementFacadeMixin implements PrinterPlaceme
     public abstract boolean canProcessPos(BlockPos pos);
 
     @Shadow(remap = false)
-    public abstract boolean isOnCooldown(BlockPos pos);
-
-    @Shadow(remap = false)
     protected abstract void executeIteration(BlockPos pos,
             AtomicReference<Boolean> skipIteration);
-
-    @Shadow(remap = false)
-    protected abstract void updateVariables();
 
     /** Marks both legacy and scheduled PrintHandler actions without affecting other handlers. */
     @Redirect(method = "executeIteration",
@@ -68,7 +62,9 @@ public abstract class PrintHandlerPlacementFacadeMixin implements PrinterPlaceme
             // PrintHandler.tick may return for PLACE_INTERVAL before refreshing
             // these inherited fields. A scheduler submission is an independent
             // entry point and must refresh them explicitly after respawn/change.
-            updateVariables();
+            ClientPlayerTickHandlerAccessor inherited =
+                    (ClientPlayerTickHandlerAccessor) (Object) this;
+            inherited.litematicaPrinter$updateVariables();
             Minecraft minecraft = Minecraft.getInstance();
             if (minecraft.player == null || minecraft.level == null
                     || minecraft.gameMode == null || minecraft.getConnection() == null) {
@@ -77,7 +73,8 @@ public abstract class PrintHandlerPlacementFacadeMixin implements PrinterPlaceme
                 return SubmissionResult.NOT_ACTIONABLE;
             }
             BlockPos pos = BlockPos.of(attempt.packedPosition());
-            if (!canProcessPos(pos) || isOnCooldown(pos)) {
+            if (!canProcessPos(pos)
+                    || inherited.litematicaPrinter$isOnCooldown(pos)) {
                 finished = true;
                 PrinterIntegrationApi.finishScheduledAttempt(attempt);
                 return SubmissionResult.NOT_ACTIONABLE;

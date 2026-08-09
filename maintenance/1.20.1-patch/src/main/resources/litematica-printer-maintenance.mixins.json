@@ -4,6 +4,7 @@
   "package": "me.aleksilassila.litematica.printer.integration.mixin",
   "compatibilityLevel": "JAVA_17",
   "client": [
+    "ClientPlayerTickHandlerAccessor",
     "PrintHandlerPlacementFacadeMixin"
   ],
   "injectors": {
