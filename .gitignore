@@ -94,3 +94,6 @@ $RECYCLE.BIN/
 AGENTS.md
 *.factorypath
 /.sisyphus/
+
+# Local maintenance release artifacts and provenance manifests
+/maintenance/1.20.1-patch/outputs/
