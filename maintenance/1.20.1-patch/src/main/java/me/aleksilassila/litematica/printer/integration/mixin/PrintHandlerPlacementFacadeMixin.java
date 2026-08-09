@@ -38,7 +38,7 @@ public abstract class PrintHandlerPlacementFacadeMixin implements PrinterPlaceme
     /** Marks both legacy and scheduled PrintHandler actions without affecting other handlers. */
     @Redirect(method = "executeIteration",
             at = @At(value = "INVOKE",
-                    target = "Lme/aleksilassila/litematica/printer/printer/ActionManager;sendQueue(Lnet/minecraft/client/player/LocalPlayer;)Lme/aleksilassila/litematica/printer/printer/ActionManager;",
+                    target = "Lme/aleksilassila/litematica/printer/printer/ActionManager;sendQueue(Lnet/minecraft/class_746;)Lme/aleksilassila/litematica/printer/printer/ActionManager;",
                     remap = false),
             remap = false, require = 1)
     private ActionManager litematicaPrinter$sendVerifiedPrintRequest(

@@ -136,7 +136,10 @@ build.
 The check opens the exact 1.20.1 nested Printer JAR in memory and verifies its
 own SHA-256, Fabric id/version/Mixin declaration, maintenance Mixin config, and
 the Scheduler, placement API, gateway Mixin, and replacement ActionManager
-classes. It separately verifies the Tom JAR metadata, explicit Printer bridge,
+classes. It also rejects a Printer facade whose required `sendQueue` redirect
+still carries the named `LocalPlayer` descriptor instead of the final 1.20.1
+intermediary `class_746` descriptor. It separately verifies the Tom JAR
+metadata, explicit Printer bridge,
 layered controller, refill/lease/transaction classes, and safety Mixins. The
 two Mixin configs must both opt into required loading with
 `injectors.defaultRequire` set to `1`; Tom's declaration must retain the

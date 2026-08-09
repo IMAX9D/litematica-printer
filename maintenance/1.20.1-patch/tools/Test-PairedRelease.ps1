@@ -46,6 +46,28 @@ function Assert-RequiredZipEntries {
     }
 }
 
+function Assert-ZipEntryAsciiContract {
+    param(
+        [Parameter(Mandatory = $true)] $Entry,
+        [Parameter(Mandatory = $true)][string[]] $RequiredText,
+        [string[]] $ForbiddenText = @(),
+        [Parameter(Mandatory = $true)][string] $Label
+    )
+
+    $classText = [System.Text.Encoding]::ASCII.GetString(
+        (Read-ZipEntryBytes -Entry $Entry))
+    foreach ($expected in $RequiredText) {
+        if ($classText.IndexOf($expected, [System.StringComparison]::Ordinal) -lt 0) {
+            throw "$Label is missing required bytecode contract text: $expected"
+        }
+    }
+    foreach ($forbidden in $ForbiddenText) {
+        if ($classText.IndexOf($forbidden, [System.StringComparison]::Ordinal) -ge 0) {
+            throw "$Label contains forbidden bytecode contract text: $forbidden"
+        }
+    }
+}
+
 function Assert-JsonStringArrayContains {
     param(
         [Parameter(Mandatory = $true)] $Values,
@@ -207,6 +229,14 @@ try {
         -Values $printerMixinMetadata.client `
         -ExpectedValues @('PrintHandlerPlacementFacadeMixin') `
         -Label "Nested Printer $PrinterMixinConfig client Mixins"
+
+    $printDispatchDescriptor = 'Lme/aleksilassila/litematica/printer/printer/ActionManager;sendQueue(Lnet/minecraft/class_746;)Lme/aleksilassila/litematica/printer/printer/ActionManager;'
+    $namedPrintDispatchDescriptor = 'Lme/aleksilassila/litematica/printer/printer/ActionManager;sendQueue(Lnet/minecraft/client/player/LocalPlayer;)Lme/aleksilassila/litematica/printer/printer/ActionManager;'
+    Assert-ZipEntryAsciiContract `
+        -Entry $innerEntries['me/aleksilassila/litematica/printer/integration/mixin/PrintHandlerPlacementFacadeMixin.class'] `
+        -RequiredText @($printDispatchDescriptor, 'sendQueueFromPrintHandler') `
+        -ForbiddenText @($namedPrintDispatchDescriptor) `
+        -Label 'Nested Printer PrintHandler facade Mixin'
 
     $tomArchive = [System.IO.Compression.ZipFile]::OpenRead($tomPath)
     $tomEntries = Get-ZipEntryMap -Archive $tomArchive -Label 'Paired Tom JAR'
