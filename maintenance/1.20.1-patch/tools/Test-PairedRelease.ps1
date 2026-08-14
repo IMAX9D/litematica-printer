@@ -134,17 +134,22 @@ $printerRequiredEntries = @(
     $PrinterMixinConfig,
     'me/aleksilassila/litematica/printer/printer/ActionManager.class',
     'me/aleksilassila/litematica/printer/api/PrinterIntegrationApi.class',
+    'me/aleksilassila/litematica/printer/api/LegacyScanControl.class',
     'me/aleksilassila/litematica/printer/api/PrinterPlacementFacade.class',
     'me/aleksilassila/litematica/printer/api/scheduler/SchematicPrintIndex.class',
     'me/aleksilassila/litematica/printer/api/scheduler/LayerScheduler.class',
     'me/aleksilassila/litematica/printer/api/scheduler/ScheduledMaterialDemand.class',
     'me/aleksilassila/litematica/printer/api/scheduler/PlacementResult.class',
+    'me/aleksilassila/litematica/printer/integration/LegacyRenderLayerScanBounds.class',
+    'me/aleksilassila/litematica/printer/integration/LegacyRenderLayerScanBounds$Bounds.class',
     'me/aleksilassila/litematica/printer/integration/mixin/ClientPlayerTickHandlerAccessor.class',
+    'me/aleksilassila/litematica/printer/integration/mixin/ClientPlayerTickHandlerLegacyScanMixin.class',
     'me/aleksilassila/litematica/printer/integration/mixin/PrintHandlerPlacementFacadeMixin.class'
 )
 $tomRequiredEntries = @(
     'fabric.mod.json',
     $TomPrinterMixinConfig,
+    'toms_storage_fabric-1.20-refmap.json',
     'com/tom/storagemod/StorageModClient.class',
     'com/tom/storagemod/util/ClientPrinterLayeredController.class',
     'com/tom/storagemod/util/ClientPrinterLayeredIndex.class',
@@ -156,8 +161,16 @@ $tomRequiredEntries = @(
     'com/tom/storagemod/util/ClientPrinterStorageBridge.class',
     'com/tom/storagemod/util/ClientPrinterSafety.class',
     'com/tom/storagemod/util/LegacyClientPrinterRefillEngine.class',
+    'com/tom/storagemod/util/FrozenRefillPlanPolicy.class',
+    'com/tom/storagemod/util/FrozenRefillPlanPolicy$Plan.class',
+    'com/tom/storagemod/util/FrozenRefillPlanPolicy$Source.class',
+    'com/tom/storagemod/util/PrinterAcknowledgedBatchRetention.class',
+    'com/tom/storagemod/util/PrinterLegacyMissingRevisitBatch.class',
+    'com/tom/storagemod/util/PrinterLegacyScanRestartLatch.class',
     'com/tom/storagemod/util/PrinterMaterialLeaseLedger.class',
+    'com/tom/storagemod/util/PrinterPlacementStatePolicy.class',
     'com/tom/storagemod/util/PrinterTransferTransaction.class',
+    'com/tom/storagemod/mixin/ClientPrinterNetworkAckMixin.class',
     'com/tom/storagemod/mixin/LitematicaSchematicPlacementManagerMixin.class',
     'com/tom/storagemod/mixin/LitematicaPrinterVersionPackActionManagerMixin.class',
     'com/tom/storagemod/mixin/LitematicaPrinterVersionPackInventoryMixin.class',
@@ -230,6 +243,7 @@ try {
         -Values $printerMixinMetadata.client `
         -ExpectedValues @(
             'ClientPlayerTickHandlerAccessor',
+            'ClientPlayerTickHandlerLegacyScanMixin',
             'PrintHandlerPlacementFacadeMixin'
         ) `
         -Label "Nested Printer $PrinterMixinConfig client Mixins"
@@ -250,6 +264,51 @@ try {
             'Lorg/spongepowered/asm/mixin/gen/Invoker;'
         ) `
         -Label 'Nested Printer inherited handler accessor Mixin'
+    Assert-ZipEntryAsciiContract `
+        -Entry $innerEntries['me/aleksilassila/litematica/printer/api/LegacyScanControl.class'] `
+        -RequiredText @(
+            'restartLegacyScanFromCurrentRangeStart',
+            'restartCurrentRange',
+            'revisitLegacyMissingPositions',
+            'revisitMissingPositions',
+            'clearMissingPositionRevisits',
+            'configureScanVisitBudget',
+            'setLegacyScanVisitBudget'
+        ) `
+        -Label 'Nested Printer legacy scan control API'
+    Assert-ZipEntryAsciiContract `
+        -Entry $innerEntries['me/aleksilassila/litematica/printer/integration/LegacyRenderLayerScanBounds.class'] `
+        -RequiredText @(
+            'LITEMATICA_RENDER_LAYER',
+            'SINGLE_LAYER',
+            'getRenderLayerRange',
+            'getClampedArea',
+            'net/minecraft/class_638',
+            'method_31607',
+            'method_31600'
+        ) `
+        -ForbiddenText @('75', '125') `
+        -Label 'Nested Printer render-layer scan bounds'
+    Assert-ZipEntryAsciiContract `
+        -Entry $innerEntries['me/aleksilassila/litematica/printer/integration/mixin/ClientPlayerTickHandlerLegacyScanMixin.class'] `
+        -RequiredText @(
+            'me.aleksilassila.litematica.printer.handler.ClientPlayerTickHandler',
+            'restartLegacyScanFromCurrentRangeStart',
+            'revisitLegacyMissingPositions',
+            'litematicaPrinter$legacyRevisits',
+            'LitematicaUtils',
+            'PlayerUtils',
+            'isQueueIdle',
+            'getNativeDispatchSequence',
+            'externalDispatchSequence',
+            'LegacyRenderLayerScanBounds',
+            'PrinterBox;<init>(IIIIII)V',
+            'cachedIterator',
+            'lastPos',
+            'lastBox',
+            'java/util/concurrent/atomic/AtomicReference'
+        ) `
+        -Label 'Nested Printer legacy scan reset Mixin'
 
     $tomArchive = [System.IO.Compression.ZipFile]::OpenRead($tomPath)
     $tomEntries = Get-ZipEntryMap -Archive $tomArchive -Label 'Paired Tom JAR'
@@ -291,6 +350,7 @@ try {
     Assert-JsonStringArrayContains `
         -Values $tomMixinMetadata.client `
         -ExpectedValues @(
+            'ClientPrinterNetworkAckMixin',
             'LitematicaSchematicPlacementManagerMixin',
             'LitematicaPrinterVersionPackActionManagerMixin',
             'LitematicaPrinterVersionPackInventoryMixin',
@@ -301,6 +361,93 @@ try {
             'LitematicaPrinterVersionPackTickMixin'
         ) `
         -Label "Tom $TomPrinterMixinConfig client Mixins"
+
+    if (-not [string]::Equals([string] $tomMixinMetadata.refmap,
+            'toms_storage_fabric-1.20-refmap.json',
+            [System.StringComparison]::Ordinal)) {
+        throw "Tom Printer Mixin refmap is unexpected: '$($tomMixinMetadata.refmap)'."
+    }
+    Assert-ZipEntryAsciiContract `
+        -Entry $tomEntries['com/tom/storagemod/util/ClientPrinterStorageBridge.class'] `
+        -RequiredText @(
+            'me/aleksilassila/litematica/printer/api/LegacyScanControl',
+            'observeLegacyPrintHandler',
+            'restartLegacyScanFromCurrentRange',
+            'restartCurrentRange',
+            'configureScanVisitBudget',
+            'revisitLegacyMissingPositions',
+            'revisitMissingPositions',
+            'clearMissingPositionRevisits'
+        ) `
+        -Label 'Tom Printer storage bridge legacy scan restart boundary'
+    Assert-ZipEntryAsciiContract `
+        -Entry $tomEntries['com/tom/storagemod/util/LegacyClientPrinterRefillEngine.class'] `
+        -RequiredText @(
+            'PrinterAcknowledgedBatchRetention',
+            'PrinterLegacyMissingRevisitBatch',
+            'transactionAcknowledgedInboundKeys',
+            'legacy_missing_backlog',
+            'store_transfer_not_acknowledged',
+            'recipe_paths_temporarily_unavailable',
+            'FrozenRefillPlanPolicy',
+            'activeFrozenRefillPlan',
+            'frozenInventorySlots',
+            'PrinterControlledSlotPolicy',
+            'RESERVED_PRINTER_SLOTS'
+        ) `
+        -ForbiddenText @(
+            'MAX_REFILL_BATCH_SLOTS'
+        ) `
+        -Label 'Tom Printer bounded refill and exact revisit engine'
+    Assert-ZipEntryAsciiContract `
+        -Entry $tomEntries['com/tom/storagemod/util/FrozenRefillPlanPolicy.class'] `
+        -RequiredText @(
+            'PrinterControlledSlotPolicy',
+            'usableSlots',
+            'PrinterRefillTargetPolicy',
+            'allocate',
+            'maximumTypes'
+        ) `
+        -ForbiddenText @(
+            'MAX_REFILL_BATCH_SLOTS'
+        ) `
+        -Label 'Tom frozen refill generation policy'
+    Assert-ZipEntryAsciiContract `
+        -Entry $tomEntries['com/tom/storagemod/util/FrozenRefillPlanPolicy$Source.class'] `
+        -RequiredText @('REQUIRED_MISS', 'SCHEDULED', 'RECENT') `
+        -Label 'Tom frozen refill demand sources'
+    Assert-ZipEntryAsciiContract `
+        -Entry $tomEntries['com/tom/storagemod/util/FrozenRefillPlanPolicy$Plan.class'] `
+        -RequiredText @('generation', 'scheduledIdentity', 'entries', 'controlledSlots', 'statistics') `
+        -Label 'Tom immutable frozen refill plan'
+    Assert-ZipEntryAsciiContract `
+        -Entry $tomEntries['com/tom/storagemod/util/PrinterLegacyScanRestartLatch.class'] `
+        -RequiredText @(
+            'missingObserved',
+            'inventoryAcknowledged',
+            'shouldAttemptRestart',
+            'restartAttempted'
+        ) `
+        -Label 'Tom Printer acknowledged legacy scan restart latch'
+    $tomRefmap = ConvertFrom-ZipJsonEntry `
+        -Entry $tomEntries['toms_storage_fabric-1.20-refmap.json'] `
+        -Label 'Tom Printer Mixin refmap'
+    $networkAckMappings = $tomRefmap.mappings.'com/tom/storagemod/mixin/ClientPrinterNetworkAckMixin'
+    if ($null -eq $networkAckMappings) {
+        throw 'Tom Printer Mixin refmap has no ClientPrinterNetworkAckMixin mappings.'
+    }
+    $expectedSendMapping = 'Lnet/minecraft/class_634;method_2883(Lnet/minecraft/class_2596;)V'
+    $actualSendMapping = $networkAckMappings.'send(Lnet/minecraft/network/protocol/Packet;)V'
+    if (-not [string]::Equals([string] $actualSendMapping, $expectedSendMapping,
+            [System.StringComparison]::Ordinal)) {
+        throw "Tom network ACK send mapping mismatch. Expected '$expectedSendMapping' but found '$actualSendMapping'."
+    }
+    $expectedAckMapping = 'Lnet/minecraft/class_634;method_21707(Lnet/minecraft/class_4463;)V'
+    $actualAckMapping = $networkAckMappings.'handleBlockChangedAck(Lnet/minecraft/network/protocol/game/ClientboundBlockChangedAckPacket;)V'
+    if (-not [string]::Equals([string] $actualAckMapping, $expectedAckMapping,
+            [System.StringComparison]::Ordinal)) {
+        throw "Tom network ACK handler mapping mismatch. Expected '$expectedAckMapping' but found '$actualAckMapping'."
+    }
 
     [pscustomobject]@{
         PrinterOuterJar = $outerPath

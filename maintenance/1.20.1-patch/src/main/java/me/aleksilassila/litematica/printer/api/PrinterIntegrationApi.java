@@ -142,6 +142,7 @@ public final class PrinterIntegrationApi {
     };
     private static final AtomicReference<Gateway> GATEWAY = new AtomicReference<>(NOOP);
     private static final AtomicLong NEXT_REQUEST_ID = new AtomicLong(1L);
+    private static final AtomicLong EXTERNAL_DISPATCH_SEQUENCE = new AtomicLong();
     private static volatile boolean nativeActionManagerHookAvailable;
     private static ScheduledAttempt scheduledAttempt;
     private static Thread scheduledAttemptOwner;
@@ -175,6 +176,22 @@ public final class PrinterIntegrationApi {
 
     public static boolean nativeActionManagerHookAvailable() {
         return nativeActionManagerHookAvailable;
+    }
+
+    /**
+     * Marks a direct placement boundary which intentionally bypasses
+     * ActionManager (for example an integration-owned use-item lane). The mark
+     * is synchronous and says only that replay is no longer safe; it never
+     * waits for, or implies, a server acknowledgement.
+     */
+    public static long markExternalDispatchBoundary() {
+        return EXTERNAL_DISPATCH_SEQUENCE.updateAndGet(
+                value -> value == Long.MAX_VALUE ? 1L : value + 1L);
+    }
+
+    /** Current direct-placement boundary sequence for same-thread comparison. */
+    public static long externalDispatchSequence() {
+        return EXTERNAL_DISPATCH_SEQUENCE.get();
     }
 
     public static synchronized boolean stageScheduledAttempt(ScheduledAttempt attempt) {

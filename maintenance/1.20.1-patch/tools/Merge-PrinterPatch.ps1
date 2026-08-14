@@ -41,7 +41,11 @@ $requiredPatchEntries = @(
     $MixinConfigName,
     'me/aleksilassila/litematica/printer/printer/ActionManager.class',
     'me/aleksilassila/litematica/printer/api/PrinterIntegrationApi.class',
+    'me/aleksilassila/litematica/printer/api/LegacyScanControl.class',
     'me/aleksilassila/litematica/printer/api/PrinterPlacementFacade.class',
+    'me/aleksilassila/litematica/printer/integration/LegacyRenderLayerScanBounds.class',
+    'me/aleksilassila/litematica/printer/integration/LegacyRenderLayerScanBounds$Bounds.class',
+    'me/aleksilassila/litematica/printer/integration/mixin/ClientPlayerTickHandlerLegacyScanMixin.class',
     'me/aleksilassila/litematica/printer/integration/mixin/PrintHandlerPlacementFacadeMixin.class'
 )
 

@@ -43,6 +43,7 @@ public class ActionManager {
     private boolean integrationHold;
     private boolean integrationDispatchCompleted;
     private boolean syntheticDropWait;
+    private long nativeDispatchSequence;
 
     private ActionManager() {
     }
@@ -80,15 +81,27 @@ public class ActionManager {
             return this;
         }
 
+        // Gateway callbacks may synchronously cancel this one-element queue
+        // (for example when a session/refill boundary invalidates a retained
+        // action). Keep an immutable identity for this evaluation and verify
+        // ownership again before touching native placement math. Reading the
+        // mutable public fields again after such a callback previously allowed
+        // Vec3.atCenterOf(null) to crash the client tick.
+        BlockPos queuedTarget = target;
+        Direction queuedSide = side;
+        Vec3 queuedHitModifier = hitModifier;
+
         Gateway gateway = PrinterIntegrationApi.gateway();
         if (integrationRequest == null) {
-            integrationRequest = PrinterIntegrationApi.captureRequest(target.asLong(),
-                    side.ordinal(), hitModifier.x, hitModifier.y, hitModifier.z,
+            integrationRequest = PrinterIntegrationApi.captureRequest(queuedTarget.asLong(),
+                    queuedSide.ordinal(), queuedHitModifier.x, queuedHitModifier.y,
+                    queuedHitModifier.z,
                     useProtocol, source);
         }
+        PlacementRequest evaluatedRequest = integrationRequest;
         GateResult evaluation;
         try {
-            evaluation = gateway.evaluate(integrationRequest);
+            evaluation = gateway.evaluate(evaluatedRequest);
         } catch (RuntimeException exception) {
             dropBeforeDispatch(gateway, "integration_evaluate_failed");
             return this;
@@ -107,6 +120,13 @@ public class ActionManager {
             dropBeforeDispatch(gateway, evaluation.reason());
             return this;
         }
+        if (integrationRequest != evaluatedRequest || target != queuedTarget
+                || side != queuedSide || hitModifier != queuedHitModifier) {
+            // The callback already classified/cleared the old queue. Never
+            // continue into placement using stale snapshots and never clear a
+            // replacement request from this invocation.
+            return this;
+        }
         if (evaluation.restartNativeLookProtocol()) needWaitModifyLook = false;
 
         if (look != null) PacketUtils.sendLookPacket(player, look);
@@ -123,15 +143,18 @@ public class ActionManager {
 
         if (needWaitModifyLook) needWaitModifyLook = false;
 
-        Direction direction = look == null ? side : BlockUtils.getHorizontalDirection(look.yaw());
+        Direction direction = look == null ? queuedSide
+                : BlockUtils.getHorizontalDirection(look.yaw());
         Vec3 hitVec;
         if (!useProtocol) {
-            Vec3 targetCenter = Vec3.atCenterOf(target);
-            Vec3 sideOffset = Vec3.atLowerCornerOf(BlockUtils.getVector(side)).scale(0.5);
-            Vec3 rotatedHitModifier = hitModifier.yRot((direction.toYRot() + 90) % 360).scale(0.5);
+            Vec3 targetCenter = Vec3.atCenterOf(queuedTarget);
+            Vec3 sideOffset = Vec3.atLowerCornerOf(
+                    BlockUtils.getVector(queuedSide)).scale(0.5);
+            Vec3 rotatedHitModifier = queuedHitModifier
+                    .yRot((direction.toYRot() + 90) % 360).scale(0.5);
             hitVec = targetCenter.add(sideOffset).add(rotatedHitModifier);
         } else {
-            hitVec = hitModifier;
+            hitVec = queuedHitModifier;
         }
 
         if (!(Reference.MINECRAFT.gameMode
@@ -146,6 +169,13 @@ public class ActionManager {
             dropBeforeDispatch(gateway, "integration_before_dispatch_failed");
             return this;
         }
+        if (integrationRequest != evaluatedRequest || target != queuedTarget
+                || side != queuedSide || hitModifier != queuedHitModifier) {
+            // A before-dispatch observer may also synchronously invalidate the
+            // session. It owns classification of that clear; this invocation
+            // must not send the stale native action afterwards.
+            return this;
+        }
 
         boolean wasSneak = false;
         boolean changedSneak = false;
@@ -156,7 +186,8 @@ public class ActionManager {
             changedSneak = useShift != wasSneak;
             if (changedSneak) setShift(player, useShift);
             localPrediction = !Configs.Placement.PRINT_USE_PACKET.getBooleanValue();
-            blockHitResult = new BlockHitResult(hitVec, side, target, false);
+            blockHitResult = new BlockHitResult(
+                    hitVec, queuedSide, queuedTarget, false);
         } catch (RuntimeException exception) {
             if (changedSneak) {
                 try {
@@ -174,6 +205,12 @@ public class ActionManager {
         boolean nativeBoundaryEntered = false;
         boolean nativeDispatchReturned = false;
         try {
+            // This sequence is a synchronous ownership boundary, not a server
+            // acknowledgement. Once the native call is entered, replaying the
+            // same exact position could duplicate an already-sent packet even
+            // when Java subsequently observes an exception.
+            nativeDispatchSequence = nativeDispatchSequence == Long.MAX_VALUE
+                    ? 1L : nativeDispatchSequence + 1L;
             nativeBoundaryEntered = true;
             gameModeExtension.litematica_printer$useItemOn(
                     localPrediction, InteractionHand.MAIN_HAND, blockHitResult);
@@ -227,6 +264,15 @@ public class ActionManager {
 
     public boolean isQueueIdle() {
         return target == null && integrationRequest == null;
+    }
+
+    /**
+     * Monotonic client-thread sequence for entering the native placement
+     * boundary. It deliberately advances before a confirmed or uncertain
+     * result and never waits for a server response.
+     */
+    public long getNativeDispatchSequence() {
+        return nativeDispatchSequence;
     }
 
     public boolean cancelScheduled(ScheduledAttempt expected) {

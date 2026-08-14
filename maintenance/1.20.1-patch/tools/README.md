@@ -145,6 +145,9 @@ two Mixin configs must both opt into required loading with
 `injectors.defaultRequire` set to `1`; Tom's declaration must retain the
 projection lifecycle, range, ActionManager, inventory, diagnostics, safety,
 tick, and missing-item hooks, with their corresponding classes present. The
+scheduled network-ACK Mixin must also be declared and present, and its packaged
+refmap must resolve the exact 1.20.1 intermediary `ClientPacketListener.send`
+and `handleBlockChangedAck` descriptors. The
 Tom dependency must be the exact scalar predicate formed from the same patched
 Printer version, so the pair cannot silently accept the original build.365
 inner JAR.

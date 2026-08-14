@@ -14,8 +14,9 @@ import me.aleksilassila.litematica.printer.api.scheduler.SchematicPrintIndex.Lay
  * Bounded, persistent, layer-major scheduler over a {@link SchematicPrintIndex}.
  *
  * <p>The scheduler owns only ordering and attempt identity. Minecraft placement
- * semantics remain in the placement adapter, while terminal outcomes must come
- * back through the safety and verification boundary as a {@link PlacementResult}.</p>
+ * semantics remain in the placement adapter. Placement results are accepted
+ * asynchronously for verification and recovery, but server acknowledgement is
+ * never a permit for issuing later scheduled work.</p>
  */
 public final class LayerScheduler<M> {
 	public enum Validation {
@@ -180,10 +181,6 @@ public final class LayerScheduler<M> {
 			activeLayerIndex = -1;
 			return emptyBatch(0, 0, false, false);
 		}
-		// ActionManager and Tom's verification chain have one session-owned lane.
-		// Never issue another batch while any earlier lease still owns that lane.
-		if (inFlightCandidates > 0) return emptyBatch(0, 0, false, false);
-
 		int workUnits = reactivatePending(limits.candidateWorkUnits());
 		int validations = 0;
 		if (activeLayerIndex < 0 || workUnits >= limits.candidateWorkUnits()) {
@@ -248,18 +245,22 @@ public final class LayerScheduler<M> {
 				}
 			}
 
-			if (run.cursor < run.candidates.size()
-					|| !ready.isEmpty() || run.inFlight > 0) break;
+			if (run.cursor < run.candidates.size() || !ready.isEmpty()) break;
 
 			if (phase.activeRunIndex + 1 < phase.runs.size()) {
+				// Outbound placement and selected-slot packets share one ordered
+				// connection. Once the current material run is fully dispatched, the
+				// next run may enter Tom's hand-swap acknowledgement gate without
+				// waiting for every earlier world verification. A WorkBatch still
+				// contains exactly one material.
 				phase.activeRunIndex++;
 				generation++;
 				continue;
 			}
-
 			if (layer.activePhaseIndex + 1 < layer.phases.size()) {
-				// A new phase is never issued in the same WorkBatch. This remains true
-				// even when the preceding phase produced no placement work.
+				// Preserve packet order by starting a new WorkBatch, but do not wait
+				// for world acknowledgement. The server receives the already-dispatched
+				// lower phase first; verification remains an asynchronous observer.
 				layer.activePhaseIndex++;
 				generation++;
 				phaseAdvanced = true;
@@ -388,21 +389,27 @@ public final class LayerScheduler<M> {
 			case SUPPORT_OR_WORLD_CHANGED -> REVISIT_TEMPORARY;
 			case MATERIAL_AVAILABLE -> REVISIT_MATERIAL;
 			case PLAYER_OR_RANGE_CHANGED -> REVISIT_REACH | REVISIT_TEMPORARY;
-			case PERIODIC_RETRY ->
-					REVISIT_TEMPORARY | REVISIT_MATERIAL | REVISIT_REACH;
+			// Periodic retry is intentionally narrow. Material and reach have
+			// explicit acknowledgement/movement triggers; waking either here can
+			// repeatedly rewind a lower layer without any relevant state change.
+			case PERIODIC_RETRY -> REVISIT_TEMPORARY;
 			case MANUAL_RETRY -> REVISIT_TEMPORARY | REVISIT_MATERIAL
 					| REVISIT_REACH | REVISIT_MANUAL;
 		};
-		int availableReasons = 0;
+		int newlyPendingReasons = 0;
 		for (byte state = DEFERRED_TEMPORARY; state <= DEFERRED_MANUAL; state++) {
 			int reason = revisitReason(state);
-			if ((requestedReasons & reason) != 0 && deferredReasonCounts[state] > 0) {
-				availableReasons |= reason;
-				revisitCutoff[state] = deferredSequence;
-			}
+			if ((requestedReasons & reason) == 0
+					|| deferredReasonCounts[state] <= 0
+					|| (pendingRevisitReasons & reason) != 0) continue;
+			newlyPendingReasons |= reason;
+			// Freeze this request's horizon. A candidate which is revalidated and
+			// deferred again gets a later epoch and must await a later event after
+			// this pending reason has drained; duplicate requests cannot chase it.
+			revisitCutoff[state] = deferredSequence;
 		}
-		if (availableReasons == 0) return false;
-		pendingRevisitReasons |= availableReasons;
+		if (newlyPendingReasons == 0) return false;
+		pendingRevisitReasons |= newlyPendingReasons;
 		generation++;
 		return true;
 	}
@@ -441,7 +448,8 @@ public final class LayerScheduler<M> {
 				&& remaining > 0 && selectedRuns < maximumMaterialRuns; runIndex++) {
 			MaterialRun<M> run = phase.runs.get(runIndex);
 			long available = anchor.activePath
-					? run.remaining - (run.deferred - run.materialDeferred)
+					? run.remaining - run.inFlight
+							- (run.deferred - run.materialDeferred)
 					: run.materialDeferred;
 			long count = Math.min(available, remaining);
 			remaining -= (int) count;
@@ -592,9 +600,9 @@ public final class LayerScheduler<M> {
 	}
 
 	private int reactivatePending(int budget) {
-		// Rewinding an earlier layer/phase while a later lease is live would break
-		// the single ActionManager ownership boundary. Wait for all results first.
-		if (inFlightCandidates > 0) return 0;
+		// A late result may coexist with forward work. Revisit requests rewind the
+		// persistent cursor without turning outstanding verification into a global
+		// scheduling barrier.
 		int consumed = 0;
 		while (consumed < budget && pendingRevisitReasons != 0) {
 			byte queuedState = nextPendingRevisitState();
